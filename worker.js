@@ -78,44 +78,59 @@ export default {
 
     else if (action === 'ping' || action === 'http') {
       await this.tgCall(token, "sendMessage", { chat_id: chatId, text: `🔄 در حال دریافت گزارش از ۱۰ سنسور جهانی...` });
-      const createRes = await fetch('https://api.globalping.io/v1/measurements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: action === 'ping' ? 'ping' : 'http',
-          target: target,
-          locations: [
-            { country: 'IR' }, { country: 'DE' }, { country: 'US' }, { country: 'GB' }, 
-            { country: 'NL' }, { country: 'TR' }, { country: 'RU' }, { country: 'JP' }, 
-            { country: 'BR' }, { country: 'AU' }
-          ]
-        })
-      });
-      const { id } = await createRes.json();
-      let data;
-      for (let i = 0; i < 6; i++) {
-        await new Promise(r => setTimeout(r, 4000));
-        const resultRes = await fetch(`https://api.globalping.io/v1/measurements/${id}`);
-        data = await resultRes.json();
-        if (data.status === 'finished') break;
+      try {
+        const createRes = await fetch('https://api.globalping.io/v1/measurements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: action === 'ping' ? 'ping' : 'http',
+            target: target,
+            locations: [
+              { country: 'IR' }, { country: 'DE' }, { country: 'US' }, { country: 'GB' }, 
+              { country: 'NL' }, { country: 'TR' }, { country: 'RU' }, { country: 'JP' }, 
+              { country: 'BR' }, { country: 'AU' }
+            ]
+          })
+        });
+        const { id } = await createRes.json();
+        let data;
+        for (let i = 0; i < 6; i++) {
+          await new Promise(r => setTimeout(r, 4500));
+          const resultRes = await fetch(`https://api.globalping.io/v1/measurements/${id}`);
+          data = await resultRes.json();
+          if (data.status === 'finished') break;
+        }
+        let report = `📊 <b>${action.toUpperCase()} Global Report</b>\n🔗 <code>${target}</code>\n\n`;
+        const flags = { 'IR':'🇮🇷','DE':'🇩🇪','US':'🇺🇸','GB':'🇬🇧','NL':'🇳🇱','TR':'🇹🇷','RU':'🇷🇺','JP':'🇯🇵','BR':'🇧🇷','AU':'🇦🇺' };
+        
+        if (data && data.results) {
+          data.results.forEach(r => {
+            const flag = flags[r.probe.country] || '🌐';
+            let val = "❌ Timeout";
+            if (action === 'ping' && r.result.stats) val = `<b>${Math.round(r.result.stats.avg)}ms</b>`;
+            else if (action === 'http' && r.result.statusCode) val = `Code: <b>${r.result.statusCode}</b>`;
+            
+            // استخراج نام شبکه (ISP/دیتاسنتر) یا استفاده از ASN به عنوان جایگزین
+            const networkName = r.probe.network || `AS${r.probe.asn}`;
+            
+            report += `${flag} ${r.probe.city} (${networkName}): ${val}\n`;
+          });
+        } else {
+          report += "⚠️ دریافت نتایج با مشکل مواجه شد.";
+        }
+        await this.tgCall(token, "sendMessage", { chat_id: chatId, text: report, parse_mode: "HTML" });
+      } catch (e) {
+         await this.tgCall(token, "sendMessage", { chat_id: chatId, text: "❌ خطا در برقراری ارتباط با سنسورها." });
       }
-      let report = `📊 <b>${action.toUpperCase()} Global Report</b>\n🔗 <code>${target}</code>\n\n`;
-      const flags = { 'IR':'🇮🇷','DE':'🇩🇪','US':'🇺🇸','GB':'🇬🇧','NL':'🇳🇱','TR':'🇹🇷','RU':'🇷🇺','JP':'🇯🇵','BR':'🇧🇷','AU':'🇦🇺' };
-      data.results.forEach(r => {
-        const flag = flags[r.probe.country] || '🌐';
-        let val = "❌";
-        if (action === 'ping' && r.result.stats) val = `<b>${Math.round(r.result.stats.avg)}ms</b>`;
-        else if (action === 'http' && r.result.statusCode) val = `Code: <b>${r.result.statusCode}</b>`;
-        // اضافه شدن نام دیتاسنتر/AS
-        report += `${flag} ${r.probe.city} (${r.probe.asn}): ${val}\n`;
-      });
-      await this.tgCall(token, "sendMessage", { chat_id: chatId, text: report, parse_mode: "HTML" });
     }
 
     else if (action === 'snap') {
       const infoUrl = `https://check-host.net/ip-info?host=${encodeURIComponent(target)}`;
       const snapUrl = `http://api.screenshotlayer.com/api/capture?access_key=${env.API_FLASH_KEY}&url=${encodeURIComponent(infoUrl)}&viewport=1280x900&format=PNG&delay=4`;
-      await this.tgCall(token, "sendPhoto", { chat_id: chatId, photo: snapUrl, caption: `📸 <b>IP-Info Report</b>\n🎯 <code>${target}</code>`, parse_mode: "HTML" });
+      await this.tgCall(token, "sendPhoto", { chat_id: chatId, photo: snapUrl, caption: `📸 <b>IP-Info Report</b>\n🎯 <code>${target}</code>`, parse_mode: "HTML" })
+      .then(async (sendPhotoRes) => {
+        if (!sendPhotoRes.ok) await this.tgCall(token, "sendMessage", { chat_id: chatId, text: "❌ خطا در دریافت اسکرین‌شات." });
+      });
     }
   },
 
