@@ -5,6 +5,7 @@ export default {
       const update = await request.json();
       const message = update.message || update.edited_message;
       const from = message?.from || update.callback_query?.from;
+      
       if (!from || from.id.toString() !== env.ADMIN_ID.toString()) return new Response("OK");
 
       if (message?.text) {
@@ -12,10 +13,12 @@ export default {
         if (text === "/start") {
           await this.tgCall(env.BOT_TOKEN, "sendMessage", {
             chat_id: message.chat.id,
-            text: "🛰 <b>سامانه متمرکز پایش زیرساخت</b>\n\n🎯 آدرس هدف را ارسال کنید (IP یا Domain):",
+            text: "🛰 <b>به مرکز مانیتورینگ پیشرفته خوش آمدید</b>\n\n🎯 آدرس دامنه یا آی‌پی هدف را ارسال کنید:",
             parse_mode: "HTML"
           });
-        } else { await this.sendMenu(env.BOT_TOKEN, message.chat.id, text); }
+        } else {
+          await this.sendMenu(env.BOT_TOKEN, message.chat.id, text);
+        }
       } else if (update.callback_query) {
         ctx.waitUntil(this.handleCallback(update.callback_query, env));
       }
@@ -30,10 +33,10 @@ export default {
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [
-          [{ text: "📸 اسکرین‌شات (IP-Info)", callback_data: `snap` }],
-          [{ text: "⚡️ پینگ ۱۰ نقطه جهان", callback_data: `ping` }, { text: "🌐 تست HTTP", callback_data: `http` }],
-          [{ text: "🔍 آنالیز ASN و ISP", callback_data: `asn` }, { text: "🗂 شناسنامه کامل DNS", callback_data: `dns` }],
-          [{ text: "🔄 استعلام جدید", callback_data: `restart` }]
+          [{ text: "📸 اسکرین‌شات (Check-Host)", callback_data: `snap` }],
+          [{ text: "⚡️ پینگ (ایران + جهانی)", callback_data: `ping` }, { text: "🌐 تست پاسخدهی HTTP", callback_data: `http` }],
+          [{ text: "🔍 آنالیز ASN و شبکه", callback_data: `asn` }, { text: "🗂 شناسنامه کامل DNS", callback_data: `dns` }],
+          [{ text: "🔄 استعلام آدرس جدید", callback_data: `restart` }]
         ]
       }
     });
@@ -43,26 +46,33 @@ export default {
     const chatId = query.message.chat.id;
     const action = query.data;
     const token = env.BOT_TOKEN;
-    const target = query.message.text.match(/Target:\s*([^\n]+)/)?.[1].trim();
+    
+    const targetMatch = query.message.text.match(/Target:\s*([^\n]+)/);
+    const target = targetMatch ? targetMatch[1].trim() : "";
 
     await this.tgCall(token, "answerCallbackQuery", { callback_query_id: query.id });
+
     if (action === 'restart') {
       await this.tgCall(token, "sendMessage", { chat_id: chatId, text: "🆕 آدرس جدید را بفرستید:" });
       return;
     }
 
-    await this.tgCall(token, "sendChatAction", { chat_id: chatId, action: "typing" });
+    if (!target) return;
+
+    await this.tgCall(token, "sendChatAction", { chat_id: chatId, action: (action === 'snap' ? "upload_photo" : "typing") });
 
     if (action === 'dns') {
-      let report = `🗂 <b>DNS Records for:</b> <code>${target}</code>\n\n`;
+      let report = `🗂 <b>DNS Records:</b> <code>${target}</code>\n\n`;
       const types = ['A', 'NS', 'MX', 'TXT'];
       for (const type of types) {
-        const dnsRes = await fetch(`https://cloudflare-dns.com/dns-query?name=${target}&type=${type}`, { headers: { 'accept': 'application/dns-json' }});
-        const data = await dnsRes.json();
-        if (data.Answer) {
-          report += `<b>🔹 ${type} Records:</b>\n`;
-          data.Answer.forEach(r => report += `  ├ <code>${r.data}</code>\n`);
-        }
+        try {
+          const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${target}&type=${type}`, { headers: { 'accept': 'application/dns-json' }});
+          const data = await res.json();
+          if (data.Answer) {
+            report += `<b>🔹 ${type}:</b>\n`;
+            data.Answer.forEach(r => report += `  ├ <code>${r.data}</code>\n`);
+          }
+        } catch(e) {}
       }
       await this.tgCall(token, "sendMessage", { chat_id: chatId, text: report || "❌ رکوردی یافت نشد.", parse_mode: "HTML" });
     }
@@ -71,13 +81,13 @@ export default {
       const res = await fetch(`http://ip-api.com/json/${target}?fields=status,country,city,as,isp,org,query`);
       const data = await res.json();
       const msg = data.status === 'success' 
-        ? `🏢 <b>Network Info:</b>\n\n📍 Country: ${data.country}\n🛠 ASN: <code>${data.as}</code>\n🏢 ISP: <code>${data.isp}</code>\n📡 IP: <code>${data.query}</code>`
-        : "❌ خطای دریافت اطلاعات.";
+        ? `🏢 <b>Network Info:</b>\n\n📍 کشور: ${data.country}\n🏙 شهر: ${data.city}\n🛠 ASN: <code>${data.as}</code>\n🏢 ISP: <code>${data.isp}</code>\n📡 IP: <code>${data.query}</code>`
+        : "❌ خطا در دریافت اطلاعات شبکه.";
       await this.tgCall(token, "sendMessage", { chat_id: chatId, text: msg, parse_mode: "HTML" });
     }
 
     else if (action === 'ping' || action === 'http') {
-      await this.tgCall(token, "sendMessage", { chat_id: chatId, text: `🔄 در حال دریافت گزارش از ۱۰ سنسور جهانی...` });
+      await this.tgCall(token, "sendMessage", { chat_id: chatId, text: `🔄 در حال دریافت گزارش از سنسورهای ایران و جهان...` });
       try {
         const createRes = await fetch('https://api.globalping.io/v1/measurements', {
           method: 'POST',
@@ -86,20 +96,21 @@ export default {
             type: action === 'ping' ? 'ping' : 'http',
             target: target,
             locations: [
-              { country: 'IR' }, { country: 'DE' }, { country: 'US' }, { country: 'GB' }, 
-              { country: 'NL' }, { country: 'TR' }, { country: 'RU' }, { country: 'JP' }, 
-              { country: 'BR' }, { country: 'AU' }
+              { country: 'IR', limit: 5 }, // درخواست ۵ نود متفاوت از ایران
+              { country: 'DE' }, { country: 'US' }, { country: 'GB' }, 
+              { country: 'NL' }, { country: 'TR' }, { country: 'JP' }
             ]
           })
         });
         const { id } = await createRes.json();
         let data;
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 7; i++) {
           await new Promise(r => setTimeout(r, 4500));
           const resultRes = await fetch(`https://api.globalping.io/v1/measurements/${id}`);
           data = await resultRes.json();
           if (data.status === 'finished') break;
         }
+
         let report = `📊 <b>${action.toUpperCase()} Global Report</b>\n🔗 <code>${target}</code>\n\n`;
         const flags = { 'IR':'🇮🇷','DE':'🇩🇪','US':'🇺🇸','GB':'🇬🇧','NL':'🇳🇱','TR':'🇹🇷','RU':'🇷🇺','JP':'🇯🇵','BR':'🇧🇷','AU':'🇦🇺' };
         
@@ -109,28 +120,41 @@ export default {
             let val = "❌ Timeout";
             if (action === 'ping' && r.result.stats) val = `<b>${Math.round(r.result.stats.avg)}ms</b>`;
             else if (action === 'http' && r.result.statusCode) val = `Code: <b>${r.result.statusCode}</b>`;
-            
-            // استخراج نام شبکه (ISP/دیتاسنتر) یا استفاده از ASN به عنوان جایگزین
-            const networkName = r.probe.network || `AS${r.probe.asn}`;
-            
-            report += `${flag} ${r.probe.city} (${networkName}): ${val}\n`;
+            const isp = r.probe.network || `AS${r.probe.asn}`;
+            report += `${flag} ${r.probe.city} (${isp}): ${val}\n`;
           });
         } else {
-          report += "⚠️ دریافت نتایج با مشکل مواجه شد.";
+          report += "⚠️ نتایجی دریافت نشد.";
         }
         await this.tgCall(token, "sendMessage", { chat_id: chatId, text: report, parse_mode: "HTML" });
       } catch (e) {
-         await this.tgCall(token, "sendMessage", { chat_id: chatId, text: "❌ خطا در برقراری ارتباط با سنسورها." });
+        await this.tgCall(token, "sendMessage", { chat_id: chatId, text: "❌ خطا در سیستم پایش." });
       }
     }
 
     else if (action === 'snap') {
       const infoUrl = `https://check-host.net/ip-info?host=${encodeURIComponent(target)}`;
-      const snapUrl = `http://api.screenshotlayer.com/api/capture?access_key=${env.API_FLASH_KEY}&url=${encodeURIComponent(infoUrl)}&viewport=1280x900&format=PNG&delay=4`;
-      await this.tgCall(token, "sendPhoto", { chat_id: chatId, photo: snapUrl, caption: `📸 <b>IP-Info Report</b>\n🎯 <code>${target}</code>`, parse_mode: "HTML" })
-      .then(async (sendPhotoRes) => {
-        if (!sendPhotoRes.ok) await this.tgCall(token, "sendMessage", { chat_id: chatId, text: "❌ خطا در دریافت اسکرین‌شات." });
-      });
+      const apiUrl = `http://api.screenshotlayer.com/api/capture?access_key=${env.API_FLASH_KEY}&url=${encodeURIComponent(infoUrl)}&viewport=1280x900&format=PNG&delay=4`;
+      
+      try {
+        const checkRes = await fetch(apiUrl);
+        if (checkRes.ok) {
+          await this.tgCall(token, "sendPhoto", { 
+            chat_id: chatId, 
+            photo: apiUrl, 
+            caption: `📸 <b>IP-Info Report</b>\n🎯 <code>${target}</code>\n\n🔎 <a href="${infoUrl}">[لینک گزارش]</a>`, 
+            parse_mode: "HTML" 
+          });
+        } else {
+          let err = "❌ <b>خطای اسکرین‌شات:</b>\n";
+          if (checkRes.status === 402) err += "💳 سهمیه ماهانه ۱۰۰تایی شما تمام شده.";
+          else if (checkRes.status === 401) err += "🔑 API Key نامعتبر است.";
+          else err += `⚠️ کد وضعیت سرور: ${checkRes.status}`;
+          await this.tgCall(token, "sendMessage", { chat_id: chatId, text: err, parse_mode: "HTML" });
+        }
+      } catch (e) {
+        await this.tgCall(token, "sendMessage", { chat_id: chatId, text: "🚨 خطا در اتصال به API اسکرین‌شات." });
+      }
     }
   },
 
